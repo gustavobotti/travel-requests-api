@@ -15,15 +15,13 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        // Create a test user for development
         User::factory()->create([
-            'name' => 'Test User',
+            'name' => 'Test',
             'email' => 'test@example.com',
         ]);
 
-        // Create an admin/manager user
         User::factory()->create([
-            'name' => 'Admin User',
+            'name' => 'Admin',
             'email' => 'admin@example.com',
         ]);
 

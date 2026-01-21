@@ -3,174 +3,108 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\TravelRequestStatus;
+use App\Events\TravelRequestStatusUpdated;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\IndexTravelRequestRequest;
+use App\Http\Requests\StoreTravelRequestRequest;
+use App\Http\Requests\UpdateTravelRequestRequest;
+use App\Http\Requests\UpdateTravelStatusRequest;
+use App\Http\Resources\TravelRequestResource;
 use App\Models\TravelRequest;
-use Illuminate\Http\Request;
+use App\Queries\TravelRequestQuery;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
-/**
- * Travel Request Controller
- *
- * Handles all travel request operations following the challenge requirements.
- */
 class TravelRequestController extends Controller
 {
     /**
-     * Display a listing of the user's travel requests.
+     * Display a listing of the resource.
+     * Supports filtering by status, destination, and date ranges.
      * Users can only see their own travel requests.
-     *
-     * Filters: status, destination, date ranges
      */
-    public function index(Request $request): JsonResponse
+    public function index(IndexTravelRequestRequest $request): AnonymousResourceCollection
     {
-        $this->authorize('viewAny', TravelRequest::class);
+        $travelRequests = (new TravelRequestQuery())
+            ->withRelationships()
+            ->forUser($request->user()->id)
+            ->applyFilters($request->validated())
+            ->orderByNewest()
+            ->paginate($request->input('per_page', 15));
 
-        $query = TravelRequest::query()
-            ->ownedBy($request->user()->id)
-            ->with(['requester', 'approver', 'canceller']);
-
-        // Filter by status
-        if ($request->has('status')) {
-            $status = TravelRequestStatus::tryFrom($request->status);
-            if ($status) {
-                $query->withStatus($status);
-            }
-        }
-
-        // Filter by destination
-        if ($request->filled('destination')) {
-            $query->byDestination($request->destination);
-        }
-
-        // Filter by travel date range
-        if ($request->filled(['travel_start_date', 'travel_end_date'])) {
-            $query->byTravelDateRange(
-                $request->travel_start_date,
-                $request->travel_end_date
-            );
-        }
-
-        // Filter by created at date range
-        if ($request->filled(['created_start_date', 'created_end_date'])) {
-            $query->byCreatedAtRange(
-                $request->created_start_date,
-                $request->created_end_date
-            );
-        }
-
-        $travelRequests = $query->latest()->paginate(15);
-
-        return response()->json($travelRequests);
+        return TravelRequestResource::collection($travelRequests);
     }
 
     /**
-     * Store a newly created travel request.
-     * Any authenticated user can create a travel request.
+     * Store a newly created resource in storage.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreTravelRequestRequest $request): JsonResponse
     {
-        $this->authorize('create', TravelRequest::class);
+        $travelRequest = TravelRequest::create($request->validated());
 
-        $validated = $request->validate([
-            'destination' => 'required|string|max:255',
-            'departure_date' => 'required|date|after_or_equal:today',
-            'return_date' => 'required|date|after:departure_date',
-        ]);
+        $travelRequest->load('requester');
 
-        $travelRequest = TravelRequest::create([
-            'requester_user_id' => $request->user()->id,
-            'requester_name' => $request->user()->name,
-            'destination' => $validated['destination'],
-            'departure_date' => $validated['departure_date'],
-            'return_date' => $validated['return_date'],
-            'status' => TravelRequestStatus::REQUESTED,
-        ]);
-
-        return response()->json($travelRequest->load('requester'), 201);
+        return (new TravelRequestResource($travelRequest))
+            ->response()
+            ->setStatusCode(201);
     }
 
     /**
-     * Display the specified travel request.
-     * Users can only view their own travel requests.
+     * Display the specified resource.
      */
-    public function show(TravelRequest $travelRequest): JsonResponse
+    public function show(TravelRequest $travelRequest): TravelRequestResource
     {
         $this->authorize('view', $travelRequest);
 
-        return response()->json(
+        return new TravelRequestResource(
             $travelRequest->load(['requester', 'approver', 'canceller'])
         );
     }
 
     /**
-     * Update the specified travel request details.
-     * Users can only update their own requests and only if status is REQUESTED.
-     * Note: Status cannot be changed via this endpoint. Use approve() or cancel() instead.
+     * Update the specified resource in storage.
+     * Only the requester can update their own travel request,
+     * and only if it's still in REQUESTED status.
      */
-    public function update(Request $request, TravelRequest $travelRequest): JsonResponse
-    {
-        $this->authorize('update', $travelRequest);
+    public function update(
+        UpdateTravelRequestRequest $request,
+        TravelRequest $travelRequest
+    ): TravelRequestResource {
+        $travelRequest->update($request->validated());
 
-        $validated = $request->validate([
-            'destination' => 'sometimes|string|max:255',
-            'departure_date' => 'sometimes|date|after_or_equal:today',
-            'return_date' => 'sometimes|date|after:departure_date',
-        ]);
-
-        $travelRequest->update($validated);
-
-        return response()->json($travelRequest->load('requester'));
+        return new TravelRequestResource(
+            $travelRequest->fresh(['requester', 'approver', 'canceller'])
+        );
     }
 
     /**
-     * Approve a travel request.
-     * Business rule: User CANNOT approve their own request.
-     * Only other users (managers/approvers) can approve.
+     * Update the status of the travel request (approve or cancel).
      */
-    public function approve(Request $request, TravelRequest $travelRequest): JsonResponse
-    {
-        $this->authorize('approve', $travelRequest);
+    public function updateStatus(
+        UpdateTravelStatusRequest $request,
+        TravelRequest $travelRequest
+    ): TravelRequestResource {
+        $newStatus = TravelRequestStatus::from($request->input('status'));
 
-        $travelRequest->status = TravelRequestStatus::APPROVED;
-        $travelRequest->approved_by = $request->user()->id;
-        $travelRequest->approved_at = now();
-        $travelRequest->save();
+        $this->authorize(
+            $newStatus === TravelRequestStatus::APPROVED ? 'approve' : 'cancel',
+            $travelRequest
+        );
 
-        // TODO: Dispatch notification event
-        // event(new TravelRequestApproved($travelRequest));
+        DB::transaction(function () use ($travelRequest, $newStatus, $request) {
+            $oldStatus = $travelRequest->changeStatus($newStatus, $request->user());
 
-        return response()->json([
-            'message' => 'Travel request approved successfully.',
-            'data' => $travelRequest->load(['requester', 'approver']),
-        ]);
+            // Dispatch event for notification
+            event(new TravelRequestStatusUpdated($travelRequest, $oldStatus, $newStatus));
+        });
+
+        return new TravelRequestResource(
+            $travelRequest->load(['requester', 'approver', 'canceller'])
+        );
     }
 
     /**
-     * Cancel a travel request.
-     * Business rule: Can cancel REQUESTED or APPROVED requests.
-     * Both requester and managers can cancel.
-     */
-    public function cancel(Request $request, TravelRequest $travelRequest): JsonResponse
-    {
-        $this->authorize('cancel', $travelRequest);
-
-        $travelRequest->status = TravelRequestStatus::CANCELLED;
-        $travelRequest->cancelled_by = $request->user()->id;
-        $travelRequest->cancelled_at = now();
-        $travelRequest->save();
-
-        // TODO: Dispatch notification event
-        // event(new TravelRequestCancelled($travelRequest));
-
-        return response()->json([
-            'message' => 'Travel request cancelled successfully.',
-            'data' => $travelRequest->load(['requester', 'canceller']),
-        ]);
-    }
-
-    /**
-     * Remove the specified travel request.
-     * Users can only delete their own requests and only if status is REQUESTED.
+     * Remove the specified resource from storage.
      */
     public function destroy(TravelRequest $travelRequest): JsonResponse
     {
@@ -178,9 +112,6 @@ class TravelRequestController extends Controller
 
         $travelRequest->delete();
 
-        return response()->json([
-            'message' => 'Travel request deleted successfully.',
-        ]);
+        return response()->json(null, 204);
     }
 }
-

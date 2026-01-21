@@ -57,6 +57,7 @@ class TravelRequestPolicy
     /**
      * Determine whether the user can approve the model.
      * Only other users (not the requester) can approve requests.
+     * The requester cannot change the status of their own travel request.
      * The request must be in REQUESTED status.
      */
     public function approve(User $user, TravelRequest $travelRequest): Response
@@ -74,12 +75,16 @@ class TravelRequestPolicy
 
     /**
      * Determine whether the user can cancel the model.
-     * - The requester can cancel their own request (REQUESTED or APPROVED).
-     * - Other users (managers/approvers) can also cancel any request.
-     * - Cannot cancel if already CANCELLED.
+     * Only other users (managers/approvers) can cancel requests - NOT the requester.
+     * The requester cannot change the status of their own travel request.
+     * The request must be in REQUESTED or APPROVED status.
      */
     public function cancel(User $user, TravelRequest $travelRequest): Response
     {
+        if ($travelRequest->isRequesterUser($user->id)) {
+            return Response::deny('You cannot cancel your own travel request. Only managers/approvers can change the status.');
+        }
+
         if (!$travelRequest->status->canBeCancelled()) {
             return Response::deny('This travel request cannot be cancelled.');
         }
@@ -89,8 +94,6 @@ class TravelRequestPolicy
 
     /**
      * Determine whether the user can delete the model.
-     * Users can only soft delete their own travel requests,
-     * and only if they are in REQUESTED status (not yet approved).
      */
     public function delete(User $user, TravelRequest $travelRequest): Response
     {
@@ -107,7 +110,7 @@ class TravelRequestPolicy
 
     /**
      * Determine whether the user can restore the model.
-     * Not implemented - soft deletes are not used in this application.
+     * Disabled.
      */
     public function restore(User $user, TravelRequest $travelRequest): bool
     {
@@ -116,7 +119,7 @@ class TravelRequestPolicy
 
     /**
      * Determine whether the user can permanently delete the model.
-     * Force delete is not allowed to maintain audit trail.
+     * Disabled.
      */
     public function forceDelete(User $user, TravelRequest $travelRequest): bool
     {

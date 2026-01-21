@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TravelRequestStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -22,8 +23,22 @@ class TravelRequest extends Model
         'destination',
         'departure_date',
         'return_date',
+        'status',
+        'approved_by',
+        'approved_at',
+        'cancelled_by',
+        'cancelled_at',
     ];
 
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'approved_by',
+        'cancelled_by',
+    ];
 
     /**
      * Get the attributes that should be cast.
@@ -39,6 +54,18 @@ class TravelRequest extends Model
             'approved_at' => 'datetime',
             'cancelled_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Set default status when creating a new instance.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (TravelRequest $travelRequest) {
+            if (empty($travelRequest->status)) {
+                $travelRequest->status = TravelRequestStatus::REQUESTED;
+            }
+        });
     }
 
     /**
@@ -86,7 +113,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include travel requests with a specific status.
      */
-    public function scopeWithStatus($query, TravelRequestStatus $status)
+    public function scopeWithStatus(Builder $query, TravelRequestStatus $status): Builder
     {
         return $query->where('status', $status);
     }
@@ -94,7 +121,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include requested travel requests.
      */
-    public function scopeRequested($query)
+    public function scopeRequested(Builder $query): Builder
     {
         return $query->where('status', TravelRequestStatus::REQUESTED);
     }
@@ -102,7 +129,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include approved travel requests.
      */
-    public function scopeApproved($query)
+    public function scopeApproved(Builder $query): Builder
     {
         return $query->where('status', TravelRequestStatus::APPROVED);
     }
@@ -110,7 +137,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include cancelled travel requests.
      */
-    public function scopeCancelled($query)
+    public function scopeCancelled(Builder $query): Builder
     {
         return $query->where('status', TravelRequestStatus::CANCELLED);
     }
@@ -118,7 +145,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include travel requests that can be cancelled.
      */
-    public function scopeCancellable($query)
+    public function scopeCancellable(Builder $query): Builder
     {
         return $query->whereIn('status', [
             TravelRequestStatus::REQUESTED,
@@ -129,7 +156,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include travel requests that can be approved.
      */
-    public function scopeApprovable($query)
+    public function scopeApprovable(Builder $query): Builder
     {
         return $query->where('status', TravelRequestStatus::REQUESTED);
     }
@@ -137,7 +164,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to filter by destination.
      */
-    public function scopeByDestination($query, string $destination)
+    public function scopeByDestination(Builder $query, string $destination): Builder
     {
         return $query->where('destination', 'like', '%' . $destination . '%');
     }
@@ -145,7 +172,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to filter by departure date range.
      */
-    public function scopeByDepartureDateRange($query, $startDate, $endDate)
+    public function scopeByDepartureDateRange(Builder $query, $startDate, $endDate): Builder
     {
         return $query->whereBetween('departure_date', [$startDate, $endDate]);
     }
@@ -153,7 +180,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to filter by return date range.
      */
-    public function scopeByReturnDateRange($query, $startDate, $endDate)
+    public function scopeByReturnDateRange(Builder $query, $startDate, $endDate): Builder
     {
         return $query->whereBetween('return_date', [$startDate, $endDate]);
     }
@@ -161,7 +188,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to filter by created at date range.
      */
-    public function scopeByCreatedAtRange($query, $startDate, $endDate)
+    public function scopeByCreatedAtRange(Builder $query, $startDate, $endDate): Builder
     {
         return $query->whereBetween('created_at', [$startDate, $endDate]);
     }
@@ -169,7 +196,7 @@ class TravelRequest extends Model
     /**
      * Scope a query to filter by travel date range (departure or return within range).
      */
-    public function scopeByTravelDateRange($query, $startDate, $endDate)
+    public function scopeByTravelDateRange(Builder $query, $startDate, $endDate): Builder
     {
         return $query->where(function ($q) use ($startDate, $endDate) {
             $q->whereBetween('departure_date', [$startDate, $endDate])
@@ -184,8 +211,34 @@ class TravelRequest extends Model
     /**
      * Scope a query to only include travel requests for a specific user.
      */
-    public function scopeOwnedBy($query, int $userId)
+    public function scopeOwnedBy(Builder $query, int $userId): Builder
     {
         return $query->where('requester_user_id', $userId);
+    }
+
+    /**
+     * Change the status of the travel request and update related fields.
+     *
+     * @param TravelRequestStatus $newStatus
+     * @param User $user The user performing the action
+     * @return TravelRequestStatus The old status before the change
+     */
+    public function changeStatus(TravelRequestStatus $newStatus, User $user): TravelRequestStatus
+    {
+        $oldStatus = $this->status;
+
+        $updateData = ['status' => $newStatus];
+
+        if ($newStatus === TravelRequestStatus::APPROVED) {
+            $updateData['approved_by'] = $user->id;
+            $updateData['approved_at'] = now();
+        } elseif ($newStatus === TravelRequestStatus::CANCELLED) {
+            $updateData['cancelled_by'] = $user->id;
+            $updateData['cancelled_at'] = now();
+        }
+
+        $this->update($updateData);
+
+        return $oldStatus;
     }
 }
