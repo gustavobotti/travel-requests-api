@@ -1,8 +1,8 @@
 # Corporate Travel API
 
-Uma API RESTful feita em Laravel para gerenciar solicitações de viagens corporativas.
+A RESTful API built with Laravel for managing corporate travel requests.
 
-## Tecnologias
+## Technologies
 
 - **Framework:** Laravel 12.x
 - **PHP:** 8.2+
@@ -12,137 +12,137 @@ Uma API RESTful feita em Laravel para gerenciar solicitações de viagens corpor
 - **Mail Testing:** Mailpit
 - **Testing:** PHPUnit
 
-## Pré-requisitos
+## Prerequisites
 
 - Docker
 - Git
 
-## Instalação e Configuração
+## Installation & Setup
 
-### 1. Clone o repositório
+### 1. Clone the repository
 
 ```bash
 git clone git@github.com:gustavobotti/travel-requests-api.git
 cd travel-requests-api
 ```
 
-### 2. Instale as dependências
+### 2. Install dependencies
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/app" -w /app composer:2 composer install --ignore-platform-reqs
 ```
 
-### 3. Configuração do ambiente
+### 3. Environment configuration
 
 ```bash
 cp .env.example .env
 ```
 
-### 4. Configure o alias do Sail (opcional mas recomendado)
+### 4. Configure the Sail alias (optional but recommended)
 
 ```bash
 alias sail='[ -f sail ] && bash sail || bash vendor/bin/sail'
 
-ou simplesmente use `vendor\bin\sail` ao invés de `sail` em todos os comandos.
+or simply use `vendor\bin\sail` instead of `sail` in all commands.
 ```
 
-### 5. Inicie a aplicação
+### 5. Start the application
 
 ```bash
 sail up -d
 ```
 
-### 6. Gere a chave da aplicação
+### 6. Generate the application key
 
 ```bash
 sail artisan key:generate
 ```
 
-### 7. Execute as migrations e popule o banco de dados
+### 7. Run migrations and seed the database
 
 ```bash
 sail artisan migrate:fresh --seed
 ```
 
-### 8. Inicie o queue worker (necessário para notificações por email)
+### 8. Start the queue worker (required for email notifications)
 
 ```bash
 sail artisan queue:work
 ```
 
-Mantenha isso rodando em uma janela de terminal separada para processar as notificações por email.
+Keep this running in a separate terminal window to process email notifications.
 
-### 9. Execute os testes (opcional)
+### 9. Run the tests (optional)
 
 ```bash
 sail test
 ```
 
-## Acessando a Aplicação
+## Accessing the Application
 
-Uma vez que os containers estejam rodando, você pode acessar:
+Once the containers are running, you can access:
 
 - **API:** http://localhost
-- **Mailpit (Teste de Email):** http://localhost:8026
+- **Mailpit (Email Testing):** http://localhost:8026
 - **MySQL Database:** localhost:3307
   - Database: `laravel`
   - Username: `sail`
   - Password: `password`
 
-## Testando Notificações por Email Reais
+## Testing Real Email Notifications
 
-Para testar o sistema de notificações por email com chamadas reais à API:
+To test the email notification system with real API calls:
 
-1. Certifique-se de que o queue worker está rodando (veja passo 8 acima)
-2. Execute o script de teste:
+1. Make sure the queue worker is running (see step 8 above)
+2. Run the test script:
 
 ```bash
 bash test-notification.sh
 ```
 
-Este script irá:
-- Registrar/fazer login de dois usuários de teste (solicitante e aprovador)
-- Criar 2 solicitações de viagem
-- Alterar seus status (aprovar, cancelar, e depois cancelar a aprovada)
-- Disparar notificações por email para o mailpit
+This script will:
+- Register/log in two test users (requester and approver)
+- Create 2 travel requests
+- Change their statuses (approve, cancel, then cancel the approved one)
+- Trigger email notifications to Mailpit
 
-Confira os emails em: **http://localhost:8026**
+Check the emails at: **http://localhost:8026**
 
-## Parando a Aplicação
+## Stopping the Application
 
 ```bash
 sail down
 ```
 
-Para parar e remover os volumes:
+To stop and remove volumes:
 
 ```bash
 sail down -v
 ```
 
-## Comandos Adicionais
+## Additional Commands
 
-### Executar comandos artisan
+### Run artisan commands
 ```bash
 sail artisan [command]
 ```
 
-### Executar comandos composer
+### Run composer commands
 ```bash
 sail composer [command]
 ```
 
-### Acessar o shell do container
+### Access the container shell
 ```bash
 sail shell
 ```
 
-### Visualizar logs
+### View logs
 ```bash
 sail logs -f
 ```
 
-### Repopular o banco de dados
+### Re-seed the database
 ```bash
 sail artisan migrate:fresh --seed
 ```
